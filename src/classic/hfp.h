@@ -643,6 +643,12 @@ typedef struct hfp_connection {
     uint8_t bnip_type;       // 0 == not set
     char    bnip_number[25]; // 
 
+#ifdef ENABLE_CC256X_ASSISTED_HFP
+    bool cc256x_send_write_codec_config;
+    bool cc256x_send_wbs_associate;
+    bool cc256x_send_wbs_disassociate;
+#endif
+
 } hfp_connection_t;
 
 // UTILS_START : TODO move to utils

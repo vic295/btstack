@@ -544,6 +544,45 @@ static void hfp_run_for_context(hfp_connection_t * hfp_connection){
 	// during SDP query, RFCOMM CID is not set
 	if (hfp_connection->rfcomm_cid == 0) return;
 
+#ifdef ENABLE_CC256X_ASSISTED_HFP
+    if (hfp_connection->cc256x_send_write_codec_config && hci_can_send_command_packet_now()){
+        hfp_connection->cc256x_send_write_codec_config = false;
+        uint32_t sample_rate_hz;
+        uint16_t clock_rate_khz;
+        if (hfp_connection->negotiated_codec == HFP_CODEC_MSBC){
+            clock_rate_khz = 512;
+            sample_rate_hz = 16000;
+        } else {
+            clock_rate_khz = 256;
+            sample_rate_hz = 8000;
+        }
+        uint8_t clock_direction = 0;        // master
+        uint16_t frame_sync_duty_cycle = 0; // i2s with 50%
+        uint8_t  frame_sync_edge = 1;       // rising edge
+        uint8_t  frame_sync_polarity = 0;   // active high
+        uint8_t  reserved = 0;
+        uint16_t size = 16;
+        uint16_t chan_1_offset = 1;
+        uint16_t chan_2_offset = chan_1_offset + size;
+        uint8_t  out_edge = 1;              // rising
+        uint8_t  in_edge = 0;               // falling
+        hci_send_cmd(&hci_ti_write_codec_config, clock_rate_khz, clock_direction, sample_rate_hz, frame_sync_duty_cycle,
+                       frame_sync_edge, frame_sync_polarity, reserved,
+                       size, chan_1_offset, out_edge, size, chan_1_offset, in_edge, reserved,
+                       size, chan_2_offset, out_edge, size, chan_2_offset, in_edge, reserved);
+        return;
+    }
+    if (hfp_connection->cc256x_send_wbs_associate && hci_can_send_command_packet_now()){
+        hfp_connection->cc256x_send_wbs_associate = false;
+        hci_send_cmd(&hci_ti_wbs_associate, hfp_connection->acl_handle);
+        return;
+    }
+    if (hfp_connection->cc256x_send_wbs_disassociate && hci_can_send_command_packet_now()){
+        hfp_connection->cc256x_send_wbs_disassociate = false;
+        hci_send_cmd(&hci_ti_wbs_disassociate);
+        return;
+    }
+#endif
     if (hfp_connection->hf_accept_sco && hci_can_send_command_packet_now()){
 
         bool eSCO = hfp_connection->hf_accept_sco == 2;

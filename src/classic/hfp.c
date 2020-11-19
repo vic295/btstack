@@ -692,6 +692,12 @@ void hfp_handle_hci_event(uint8_t packet_type, uint16_t channel, uint8_t *packet
                     } else {
                         hfp_connection->hf_accept_sco = 1;
                     }
+#ifdef ENABLE_CC256X_ASSISTED_HFP
+                    hfp_connection->cc256x_send_write_codec_config = true;
+                    if (hfp_connection->negotiated_codec == HFP_CODEC_MSBC){
+                        hfp_connection->cc256x_send_wbs_associate = true;
+                    }
+#endif
                     log_info("hf accept sco %u\n", hfp_connection->hf_accept_sco);
                     sco_establishment_active = hfp_connection;
                     if (!hfp_hf_run_for_context) break;
@@ -781,6 +787,10 @@ void hfp_handle_hci_event(uint8_t packet_type, uint16_t channel, uint8_t *packet
             hfp_connection = get_hfp_connection_context_for_sco_handle(handle, local_role);
             
             if (!hfp_connection) break;
+
+#ifdef ENABLE_CC256X_ASSISTED_HFP
+            hfp_connection->cc256x_send_wbs_disassociate = true;
+#endif
 
             hfp_connection->sco_handle = HCI_CON_HANDLE_INVALID;
             hfp_connection->release_audio_connection = 0;
