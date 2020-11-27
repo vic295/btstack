@@ -41,11 +41,15 @@ C_SOURCES =  \
 ${BTSTACK_ROOT}/3rd-party/segger-rtt/SEGGER_RTT.c \
 ${BTSTACK_ROOT}/3rd-party/segger-rtt/SEGGER_RTT_Syscalls_GCC.c \
 port/port.c \
+port/usbh_bluetooth.c \
 Src/main.c \
 Src/gpio.c \
 Src/usart.c \
 Src/stm32f4xx_it.c \
 Src/stm32f4xx_hal_msp.c \
+Src/usb_host.c \
+Src/usbh_conf.c \
+Src/usbh_platform.c \
 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim.c \
 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim_ex.c \
 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_uart.c \
@@ -65,17 +69,10 @@ Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_exti.c \
 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_hcd.c \
 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_ll_usb.c \
 Src/system_stm32f4xx.c \
-Src/usb_host.c \
-Src/usbh_conf.c \
 Middlewares/ST/STM32_USB_Host_Library/Core/Src/usbh_core.c \
 Middlewares/ST/STM32_USB_Host_Library/Core/Src/usbh_ctlreq.c \
 Middlewares/ST/STM32_USB_Host_Library/Core/Src/usbh_ioreq.c \
 Middlewares/ST/STM32_USB_Host_Library/Core/Src/usbh_pipes.c \
-Middlewares/ST/STM32_USB_Host_Library/Class/HID/Src/usbh_hid.c \
-Middlewares/ST/STM32_USB_Host_Library/Class/HID/Src/usbh_hid_keybd.c \
-Middlewares/ST/STM32_USB_Host_Library/Class/HID/Src/usbh_hid_mouse.c \
-Middlewares/ST/STM32_USB_Host_Library/Class/HID/Src/usbh_hid_parser.c \
-Src/usbh_platform.c
 
 # ASM sources
 ASM_SOURCES =  \
@@ -140,6 +137,7 @@ C_INCLUDES =  \
 -IMiddlewares/ST/STM32_USB_Host_Library/Core/Inc \
 -IMiddlewares/ST/STM32_USB_Host_Library/Class/HID/Inc \
 -I${BTSTACK_ROOT}/3rd-party/micro-ecc \
+-I${BTSTACK_ROOT}/src \
 -Iport
 
 

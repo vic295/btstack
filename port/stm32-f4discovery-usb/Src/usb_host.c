@@ -23,10 +23,9 @@
 
 #include "usb_host.h"
 #include "usbh_core.h"
-#include "usbh_hid.h"
 
 /* USER CODE BEGIN Includes */
-
+#include "usbh_bluetooth.h"
 /* USER CODE END Includes */
 
 /* USER CODE BEGIN PV */
@@ -59,32 +58,6 @@ static void USBH_UserProcess(USBH_HandleTypeDef *phost, uint8_t id);
  * -- Insert your external function declaration here --
  */
 /* USER CODE BEGIN 1 */
-static char Uart_Buf[200];
-void USBH_HID_EventCallback(USBH_HandleTypeDef *phost)
-{
-  if(USBH_HID_GetDeviceType(phost) == HID_MOUSE)  // if the HID is Mouse
-  {
-    HID_MOUSE_Info_TypeDef *Mouse_Info;
-    Mouse_Info = USBH_HID_GetMouseInfo(phost);  // Get the info
-    int X_Val = Mouse_Info->x;  // get the x value
-    int Y_Val = Mouse_Info->y;  // get the y value
-    if (X_Val > 127) X_Val -= 255;
-    if (Y_Val > 127) Y_Val -= 255;
-    int len = sprintf (Uart_Buf, "X=%d, Y=%d, Button1=%d, Button2=%d, Button3=%d\n", X_Val, Y_Val, \
-                                        Mouse_Info->buttons[0],Mouse_Info->buttons[1], Mouse_Info->buttons[2]);
-    (void) len; // HAL_UART_Transmit(&huart2, (uint8_t *) Uart_Buf, len, 100);
-  }
-
-  if(USBH_HID_GetDeviceType(phost) == HID_KEYBOARD)  // if the HID is Mouse
-  {
-    uint8_t key;
-    HID_KEYBD_Info_TypeDef *Keyboard_Info;
-    Keyboard_Info = USBH_HID_GetKeybdInfo(phost);  // get the info
-    key = USBH_HID_GetASCIICode(Keyboard_Info);  // get the key pressed
-    int len = sprintf (Uart_Buf, "Key Pressed = %c\n", key);
-    (void) len;// HAL_UART_Transmit(&huart2, (uint8_t *) Uart_Buf, len, 100);
-  }
-}
 /* USER CODE END 1 */
 
 /**
@@ -102,7 +75,7 @@ void MX_USB_HOST_Init(void)
   {
     Error_Handler();
   }
-  if (USBH_RegisterClass(&hUsbHostFS, USBH_HID_CLASS) != USBH_OK)
+  if (USBH_RegisterClass(&hUsbHostFS, USBH_BLUETOOTH_CLASS) != USBH_OK)
   {
     Error_Handler();
   }
