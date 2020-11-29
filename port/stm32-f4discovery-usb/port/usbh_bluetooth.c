@@ -38,8 +38,7 @@
 #define BTSTACK_FILE__ "usbh_bluetooth.c"
 
 #include "usbh_bluetooth.h"
-
-#define log_info puts
+#include "btstack_debug.h"
 
 typedef struct {
     uint8_t acl_in_ep;
@@ -71,22 +70,22 @@ USBH_StatusTypeDef USBH_Bluetooth_InterfaceInit(USBH_HandleTypeDef *phost){
     int16_t event_in = -1;
     for (ep_index=0;ep_index<num_endpoints;ep_index++){
         USBH_EpDescTypeDef * ep_desc = &interface->Ep_Desc[ep_index];
-        printf("Interface %u, endpoint #%u: address 0x%02x, attributes 0x%02x, packet size %u, poll %u\n",
+        log_info("Interface %u, endpoint #%u: address 0x%02x, attributes 0x%02x, packet size %u, poll %u",
                interface_index, ep_index, ep_desc->bEndpointAddress, ep_desc->bmAttributes, ep_desc->wMaxPacketSize, ep_desc->bInterval);
         // type interrupt, direction incoming
         if  (((ep_desc->bEndpointAddress & USB_EP_DIR_MSK) == USB_EP_DIR_MSK) && (ep_desc->bmAttributes == USB_EP_TYPE_INTR)){
             event_in = ep_index;
-            puts("-> HCI Event");
+            log_info("-> HCI Event");
         }
         // type bulk, direction incoming
         if  (((ep_desc->bEndpointAddress & USB_EP_DIR_MSK) == USB_EP_DIR_MSK) && (ep_desc->bmAttributes == USB_EP_TYPE_BULK)){
             acl_in = ep_index;
-            puts("-> HCI ACL IN");
+            log_info("-> HCI ACL IN");
         }
         // type bulk, direction incoming
         if  (((ep_desc->bEndpointAddress & USB_EP_DIR_MSK) == 0) && (ep_desc->bmAttributes == USB_EP_TYPE_BULK)){
             acl_out = ep_index;
-            puts("-> HCI ACL OUT");
+            log_info("-> HCI ACL OUT");
         }
     }
 
@@ -159,7 +158,7 @@ USBH_StatusTypeDef USBH_Bluetooth_Process(USBH_HandleTypeDef *phost){
                     puts("Data received");
                     return USBH_OK;
                 default:
-                    printf("URB State: %02x\n", urb_state);
+                    log_info("URB State: %02x", urb_state);
                     break;
             }
         default:

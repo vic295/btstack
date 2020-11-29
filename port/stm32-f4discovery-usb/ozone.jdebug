@@ -22,17 +22,17 @@ void OnProjectLoad (void) {
   //
   // Dialog-generated settings
   //
+  Project.SetDevice ("STM32F407VG");
+  Project.SetHostIF ("USB", "");
+  Project.SetTargetIF ("SWD");
+  Project.SetTIFSpeed ("50 MHz");
   Project.AddPathSubstitute ("/Users/mringwal/Projects/btstack/port/stm32-f4discovery-usb", "$(ProjectDir)");
   Project.AddPathSubstitute ("/users/mringwal/projects/btstack/port/stm32-f4discovery-usb", "$(ProjectDir)");
-  Project.SetDevice ("STM32F407VG");
-  Project.SetHostIF ("USB", "775189725");
-  Project.SetTargetIF ("SWD");
-  Project.SetTIFSpeed ("4 MHz");
   Project.AddSvdFile ("$(InstallDir)/Config/CPU/Cortex-M4F.svd");
   //
   // User settings
   //
-  File.Open ("$(ProjectDir)/build/stm32-f4discovery-usb.elf");
+  File.Open ("$(ProjectDir)/EXAMPLE.elf");
 }
 
 /*********************************************************************
