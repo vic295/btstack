@@ -52,10 +52,25 @@ typedef struct {
     uint8_t event_in_len;
 } USB_Bluetooth_t;
 
+static enum {
+    USBH_OUT_OFF,
+    USBH_OUT_IDLE,
+    USBH_OUT_CMD,
+    USBH_OUT_ACL
+} usbh_out_state;
+
+//
+static void (*usbh_packet_sent)(void);
+
+// class state
 static USB_Bluetooth_t usb_bluetooth;
 
-static const uint8_t hci_reset[] = { 0x03, 0x0c, 0x00};
-static uint8_t hci_event[258];
+// outgoing
+static const uint8_t * cmd_packet;
+static uint16_t        cmd_len;
+
+// incoming
+// static uint8_t hci_event[258];
 
 USBH_StatusTypeDef USBH_Bluetooth_InterfaceInit(USBH_HandleTypeDef *phost){
     log_info("USBH_Bluetooth_InterfaceInit");
@@ -110,52 +125,67 @@ USBH_StatusTypeDef USBH_Bluetooth_InterfaceInit(USBH_HandleTypeDef *phost){
 
     USBH_LL_SetToggle(phost, usb->event_in_ep, 0U);
 
+    usbh_out_state = USBH_OUT_OFF;
+
     return USBH_OK;
 }
 USBH_StatusTypeDef USBH_Bluetooth_InterfaceDeInit(USBH_HandleTypeDef *phost){
     log_info("USBH_Bluetooth_InterfaceDeInit");
+    usbh_out_state = USBH_OUT_OFF;
     return USBH_OK;
 }
-USBH_StatusTypeDef USBH_Bluetooth_ClassRequest(USBH_HandleTypeDef *phost){
-    //  log_info("USBH_Bluetooth_ClassRequest");
-    static int state = 0;
-    USBH_StatusTypeDef status;
-    switch (state){
-        case 0:
+USBH_StatusTypeDef USBH_Bluetooth_ClassRequest(USBH_HandleTypeDef *phost) {
+    switch (usbh_out_state) {
+        case USBH_OUT_OFF:
+            usbh_out_state = USBH_OUT_IDLE;
+            // notify host stack
+            (*usbh_packet_sent)();
+            break;
+        default:
+            break;
+    }
+    return USBH_OK;
+}
+
+USBH_StatusTypeDef USBH_Bluetooth_Process(USBH_HandleTypeDef *phost){
+    // log_info("USBH_Bluetooth_Process");
+    // USB_Bluetooth_t * usb = (USB_Bluetooth_t *) phost->pActiveClass->pData;
+    USBH_StatusTypeDef status = USBH_BUSY;
+    switch (usbh_out_state){
+        case USBH_OUT_CMD:
             // just send HCI Reset naively
             phost->Control.setup.b.bmRequestType = USB_H2D | USB_REQ_RECIPIENT_INTERFACE | USB_REQ_TYPE_CLASS;
             phost->Control.setup.b.bRequest = 0;
             phost->Control.setup.b.wValue.w = 0;
             phost->Control.setup.b.wIndex.w = 0U;
-            phost->Control.setup.b.wLength.w = sizeof(hci_reset);
-            status = USBH_CtlReq(phost, (uint8_t *)  hci_reset, sizeof(hci_reset));
+            phost->Control.setup.b.wLength.w = cmd_len;
+            status = USBH_CtlReq(phost, (uint8_t *) cmd_packet, cmd_len);
             if (status == USBH_OK) {
-                puts("HCI Reset Sent");
-                state++;
+                usbh_out_state = USBH_OUT_IDLE;
+                // notify host stack
+                (*usbh_packet_sent)();
             }
-            return USBH_BUSY;
+            break;
         default:
-            return USBH_OK;
+            break;
     }
-}
-static uint8_t irq_receive_state = 0;
-USBH_StatusTypeDef USBH_Bluetooth_Process(USBH_HandleTypeDef *phost){
-    // log_info("USBH_Bluetooth_Process");
-    USB_Bluetooth_t * usb = (USB_Bluetooth_t *) phost->pActiveClass->pData;
+#if 0
     USBH_URBStateTypeDef urb_state;
     switch (irq_receive_state) {
         case 0:
             USBH_InterruptReceiveData(phost, hci_event, (uint8_t) sizeof(hci_event), usb->event_in_pipe);
             irq_receive_state++;
+            requests_counter = 0;
             break;
         case 1:
             urb_state = USBH_LL_GetURBState(phost, usb->event_in_pipe);
+            requests_counter++;
             switch (urb_state){
                 case USBH_URB_IDLE:
                     break;
                 case USBH_URB_DONE:
                     irq_receive_state++;
-                    puts("Data received");
+                    printf("Data received, counter %u\n", requests_counter);
                     return USBH_OK;
                 default:
                     log_info("URB State: %02x", urb_state);
@@ -164,14 +194,28 @@ USBH_StatusTypeDef USBH_Bluetooth_Process(USBH_HandleTypeDef *phost){
         default:
             break;
     }
-    return USBH_BUSY;
+#endif
+    return status;
 }
 USBH_StatusTypeDef USBH_Bluetooth_SOFProcess(USBH_HandleTypeDef *phost){
+    // log_info("USBH_Bluetooth_SOFProcess");
     // restart interrupt receive
-    if (irq_receive_state == 1) {
-        irq_receive_state = 0;
-    }
     return USBH_OK;
+}
+
+void usbh_bluetooth_set_packet_sent(void (*callback)(void)){
+    usbh_packet_sent = callback;
+}
+
+bool usbh_bluetooth_can_send_now(void){
+    return usbh_out_state == USBH_OUT_IDLE;;
+}
+
+void usbh_bluetooth_send_cmd(const uint8_t * packet, uint16_t len){
+    btstack_assert(usbh_out_state == USBH_OUT_IDLE);
+    cmd_packet = packet;
+    cmd_len    = len;
+    usbh_out_state = USBH_OUT_CMD;
 }
 
 USBH_ClassTypeDef  Bluetooth_Class = {
