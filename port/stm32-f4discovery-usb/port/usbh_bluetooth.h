@@ -66,5 +66,6 @@ bool usbh_bluetooth_can_send_now(void);
 void usbh_bluetooth_send_cmd(const uint8_t * packet, uint16_t len);
 
 void usbh_bluetooth_set_packet_sent(void (*callback)(void));
+void usbh_bluetooth_set_packet_received(void (*callback)(uint8_t packet_type, uint8_t * packet, uint16_t size));
 
 #endif
