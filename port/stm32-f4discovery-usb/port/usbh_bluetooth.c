@@ -40,6 +40,7 @@
 #include "usbh_bluetooth.h"
 #include "btstack_debug.h"
 #include "btstack_util.h"
+#include "hci.h"
 
 typedef struct {
     uint8_t  acl_in_ep;
@@ -57,7 +58,8 @@ static enum {
     USBH_OUT_OFF,
     USBH_OUT_IDLE,
     USBH_OUT_CMD,
-    USBH_OUT_ACL
+    USBH_OUT_ACL_SEND,
+    USBH_OUT_ACL_POLL,
 } usbh_out_state;
 
 static enum {
@@ -77,10 +79,15 @@ static USB_Bluetooth_t usb_bluetooth;
 // outgoing
 static const uint8_t * cmd_packet;
 static uint16_t        cmd_len;
+static const uint8_t * acl_packet;
+static uint16_t        acl_len;
 
 // incoming
 static uint16_t hci_event_offset;
-static uint8_t hci_event[258];
+static uint8_t  hci_event[257]; // 2 + 255
+static uint16_t hci_acl_in_offset;
+static uint8_t  hci_acl_in_buffer[HCI_INCOMING_PRE_BUFFER_SIZE + HCI_ACL_BUFFER_SIZE];
+static uint8_t  * hci_acl_in_packet = &hci_acl_in_buffer[HCI_INCOMING_PRE_BUFFER_SIZE];
 
 USBH_StatusTypeDef USBH_Bluetooth_InterfaceInit(USBH_HandleTypeDef *phost){
     log_info("USBH_Bluetooth_InterfaceInit");
@@ -121,23 +128,36 @@ USBH_StatusTypeDef USBH_Bluetooth_InterfaceInit(USBH_HandleTypeDef *phost){
     }
 
     // setup
-    memset(&usb_bluetooth, 0, sizeof(USB_Bluetooth_t));
-    phost->pActiveClass->pData = (void*) &usb_bluetooth;
-
     USB_Bluetooth_t * usb = &usb_bluetooth;
+    memset(&usb_bluetooth, 0, sizeof(USB_Bluetooth_t));
+    phost->pActiveClass->pData = usb;
+
+    // CMD Out
+    usbh_out_state = USBH_OUT_OFF;
+
     // Event In
     usb->event_in_ep  =  interface->Ep_Desc[event_in].bEndpointAddress;
     usb->event_in_len =  interface->Ep_Desc[event_in].wMaxPacketSize;
     usb->event_in_pipe = USBH_AllocPipe(phost, usb->event_in_ep);
-
-    /* Open pipe for IN endpoint */
-    USBH_OpenPipe(phost, usb->event_in_pipe, usb->event_in_ep, phost->device.address,
-                  phost->device.speed, USB_EP_TYPE_INTR, interface->Ep_Desc[event_in].wMaxPacketSize);
-
+    USBH_OpenPipe(phost, usb->event_in_pipe, usb->event_in_ep, phost->device.address, phost->device.speed, USB_EP_TYPE_INTR, usb->event_in_len);
     USBH_LL_SetToggle(phost, usb->event_in_ep, 0U);
-
-    usbh_out_state = USBH_OUT_OFF;
     usbh_in_state = USBH_IN_OFF;
+
+    // ACL In
+    usb->acl_in_ep  =  interface->Ep_Desc[acl_in].bEndpointAddress;
+    usb->acl_in_len =  interface->Ep_Desc[acl_in].wMaxPacketSize;
+    usb->acl_in_pipe = USBH_AllocPipe(phost, usb->acl_in_ep);
+    USBH_OpenPipe(phost, usb->acl_in_pipe, usb->acl_in_ep, phost->device.address, phost->device.speed, USB_EP_TYPE_BULK, usb->acl_in_len);
+    USBH_LL_SetToggle(phost, usb->acl_in_pipe, 0U);
+    hci_acl_in_offset = 0;
+    USBH_BulkReceiveData(phost, hci_acl_in_packet, usb->acl_in_len, usb->acl_in_pipe);
+
+    // ACL Out
+    usb->acl_out_ep  =  interface->Ep_Desc[acl_out].bEndpointAddress;
+    usb->acl_out_len =  interface->Ep_Desc[acl_out].wMaxPacketSize;
+    usb->acl_out_pipe = USBH_AllocPipe(phost, usb->acl_out_ep);
+    USBH_OpenPipe(phost, usb->acl_out_pipe, usb->acl_out_ep, phost->device.address, phost->device.speed, USB_EP_TYPE_BULK, usb->acl_out_len);
+    USBH_LL_SetToggle(phost, usb->acl_out_pipe, 0U);
 
     return USBH_OK;
 }
@@ -163,12 +183,14 @@ USBH_StatusTypeDef USBH_Bluetooth_ClassRequest(USBH_HandleTypeDef *phost) {
 }
 
 USBH_StatusTypeDef USBH_Bluetooth_Process(USBH_HandleTypeDef *phost){
-    // log_info("USBH_Bluetooth_Process");
+
+    // HCI Command + ACL Out
+
     USB_Bluetooth_t * usb = (USB_Bluetooth_t *) phost->pActiveClass->pData;
+    USBH_URBStateTypeDef urb_state;
     USBH_StatusTypeDef status = USBH_BUSY;
     switch (usbh_out_state){
         case USBH_OUT_CMD:
-            // just send HCI Reset naively
             phost->Control.setup.b.bmRequestType = USB_H2D | USB_REQ_RECIPIENT_INTERFACE | USB_REQ_TYPE_CLASS;
             phost->Control.setup.b.bRequest = 0;
             phost->Control.setup.b.wValue.w = 0;
@@ -181,14 +203,33 @@ USBH_StatusTypeDef USBH_Bluetooth_Process(USBH_HandleTypeDef *phost){
                 (*usbh_packet_sent)();
             }
             break;
+        case USBH_OUT_ACL_SEND:
+            USBH_BulkSendData(phost, (uint8_t *) acl_packet, acl_len, usb->acl_out_pipe, 0);
+            usbh_out_state = USBH_OUT_ACL_POLL;
+            break;
+        case USBH_OUT_ACL_POLL:
+            urb_state = USBH_LL_GetURBState(phost, usb->acl_out_pipe);
+            switch (urb_state){
+                case USBH_URB_IDLE:
+                case USBH_URB_NOTREADY:
+                    break;
+                case USBH_URB_DONE:
+                    usbh_out_state = USBH_OUT_IDLE;
+                    // notify host stack
+                    (*usbh_packet_sent)();
+                    break;
+                default:
+                    log_info("URB State ACL Out: %02x", urb_state);
+                    break;
+            }
+            break;
         default:
             break;
     }
 
-    USBH_URBStateTypeDef urb_state;
-    uint32_t data_size;
-    uint16_t event_size;
+    // HCI Event
     uint8_t  event_transfer_size;
+    uint16_t event_size;
     switch (usbh_in_state){
         case USBH_IN_SUBMIT_REQUEST:
             event_transfer_size = btstack_min( usb->event_in_len, sizeof(hci_event) - hci_event_offset);
@@ -202,8 +243,8 @@ USBH_StatusTypeDef USBH_Bluetooth_Process(USBH_HandleTypeDef *phost){
                     break;
                 case USBH_URB_DONE:
                     usbh_in_state = USBH_IN_WAIT_SOF;
-                    data_size = USBH_LL_GetLastXferSize(phost, usb->event_in_pipe);
-                    hci_event_offset += data_size;
+                    event_transfer_size = USBH_LL_GetLastXferSize(phost, usb->event_in_pipe);
+                    hci_event_offset += event_transfer_size;
                     if (hci_event_offset < 2) break;
                     event_size = 2 + hci_event[1];
                     // event complete
@@ -214,13 +255,46 @@ USBH_StatusTypeDef USBH_Bluetooth_Process(USBH_HandleTypeDef *phost){
                     status = USBH_OK;
                     break;
                 default:
-                    log_info("URB State: %02x", urb_state);
+                    log_info("URB State Event: %02x", urb_state);
                     break;
             }
             break;
         default:
             break;
     }
+
+    // ACL In
+    uint16_t acl_transfer_size;
+    uint16_t acl_size;
+    urb_state = USBH_LL_GetURBState(phost, usb->acl_in_pipe);
+    switch (urb_state){
+        case USBH_URB_IDLE:
+        case USBH_URB_NOTREADY:
+            break;
+        case USBH_URB_DONE:
+            acl_transfer_size = USBH_LL_GetLastXferSize(phost, usb->acl_in_pipe);
+            hci_acl_in_offset += acl_transfer_size;
+            if (hci_acl_in_offset < 4) break;
+            acl_size = 4 + little_endian_read_16(hci_acl_in_packet, 2);
+            // acl complete
+            if (hci_acl_in_offset >= acl_size){
+                (*usbh_packet_received)(HCI_ACL_DATA_PACKET, hci_acl_in_packet, acl_size);
+                // memmove
+                uint16_t left_over =  hci_acl_in_offset - acl_size;
+                if (left_over > 0){
+                    printf("Left over %u bytes\n", left_over);
+                    memmove(hci_acl_in_packet, &hci_acl_in_packet[acl_size], hci_acl_in_offset - acl_size);
+                }
+                hci_acl_in_offset = left_over;
+            }
+            USBH_BulkReceiveData(phost, hci_acl_in_packet, usb->acl_in_len, usb->acl_in_pipe);
+            status = USBH_OK;
+            break;
+        default:
+            log_info("URB State Event: %02x", urb_state);
+            break;
+    }
+
     return status;
 }
 USBH_StatusTypeDef USBH_Bluetooth_SOFProcess(USBH_HandleTypeDef *phost){
@@ -254,6 +328,13 @@ void usbh_bluetooth_send_cmd(const uint8_t * packet, uint16_t len){
     cmd_packet = packet;
     cmd_len    = len;
     usbh_out_state = USBH_OUT_CMD;
+}
+
+void usbh_bluetooth_send_acl(const uint8_t * packet, uint16_t len){
+    btstack_assert(usbh_out_state == USBH_OUT_IDLE);
+    acl_packet = packet;
+    acl_len    = len;
+    usbh_out_state = USBH_OUT_ACL_SEND;
 }
 
 USBH_ClassTypeDef  Bluetooth_Class = {
