@@ -91,7 +91,7 @@ static uint8_t  * hci_acl_in_packet = &hci_acl_in_buffer[HCI_INCOMING_PRE_BUFFER
 
 USBH_StatusTypeDef usbh_bluetooth_start_acl_in_transfer(USBH_HandleTypeDef *phost, USB_Bluetooth_t * usb){
     uint16_t acl_in_transfer_size = btstack_min(usb->acl_in_len, HCI_ACL_BUFFER_SIZE - hci_acl_in_offset);
-    return USBH_BulkReceiveData(phost, hci_acl_in_packet, acl_in_transfer_size, usb->acl_in_pipe);
+    return USBH_BulkReceiveData(phost, &hci_acl_in_packet[hci_acl_in_offset], acl_in_transfer_size, usb->acl_in_pipe);
 }
 
 USBH_StatusTypeDef USBH_Bluetooth_InterfaceInit(USBH_HandleTypeDef *phost){
@@ -274,28 +274,35 @@ USBH_StatusTypeDef USBH_Bluetooth_Process(USBH_HandleTypeDef *phost){
 
     // ACL In
     uint16_t acl_transfer_size;
-    uint16_t acl_size;
     urb_state = USBH_LL_GetURBState(phost, usb->acl_in_pipe);
+    uint16_t acl_packet_start;
     switch (urb_state){
         case USBH_URB_IDLE:
         case USBH_URB_NOTREADY:
             break;
         case USBH_URB_DONE:
+            // update available acl bytes
             acl_transfer_size = USBH_LL_GetLastXferSize(phost, usb->acl_in_pipe);
             hci_acl_in_offset += acl_transfer_size;
-            if (hci_acl_in_offset < 4) break;
-            acl_size = 4 + little_endian_read_16(hci_acl_in_packet, 2);
-            // acl complete
-            if (hci_acl_in_offset >= acl_size){
-                (*usbh_packet_received)(HCI_ACL_DATA_PACKET, hci_acl_in_packet, acl_size);
-                // memmove
-                uint16_t left_over =  hci_acl_in_offset - acl_size;
-                if (left_over > 0){
-                    printf("Left over %u bytes\n", left_over);
-                    memmove(hci_acl_in_packet, &hci_acl_in_packet[acl_size], hci_acl_in_offset - acl_size);
-                }
-                hci_acl_in_offset = left_over;
+            // deliver complete packets
+            acl_packet_start = 0;
+            while (1){
+                uint16_t acl_bytes_avail = hci_acl_in_offset - acl_packet_start;
+                if (hci_acl_in_offset < 4) break;
+                uint16_t acl_size = 4 + little_endian_read_16(hci_acl_in_packet, acl_packet_start + 2);
+                if (acl_bytes_avail < acl_size) break;
+                (*usbh_packet_received)(HCI_ACL_DATA_PACKET, &hci_acl_in_packet[acl_packet_start], acl_size);
+                acl_packet_start += acl_size;
             }
+            // move extra data to beginning
+            if (acl_packet_start > 0){
+                uint16_t extra_data = hci_acl_in_offset - acl_packet_start;
+                if (extra_data > 0){
+                    memmove(hci_acl_in_packet, &hci_acl_in_packet[acl_packet_start], extra_data);
+                }
+                hci_acl_in_offset = extra_data;
+            }
+            // start new transfer
             usbh_bluetooth_start_acl_in_transfer(phost, usb);
             status = USBH_OK;
             break;
