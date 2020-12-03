@@ -249,8 +249,12 @@ USBH_StatusTypeDef USBH_Bluetooth_Process(USBH_HandleTypeDef *phost){
                     event_size = 2 + hci_event[1];
                     // event complete
                     if (hci_event_offset >= event_size){
-                        (*usbh_packet_received)(HCI_EVENT_PACKET, hci_event, hci_event_offset);
-                        hci_event_offset = 0;
+                        (*usbh_packet_received)(HCI_EVENT_PACKET, hci_event, event_size);
+                        uint8_t extra_data = hci_event_offset - event_size;
+                        if (extra_data > 0){
+                            memmove(hci_event, &hci_event[event_size], extra_data);
+                        }
+                        hci_event_offset = extra_data;
                     }
                     status = USBH_OK;
                     break;
