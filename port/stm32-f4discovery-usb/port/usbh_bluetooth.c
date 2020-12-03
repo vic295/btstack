@@ -89,6 +89,11 @@ static uint16_t hci_acl_in_offset;
 static uint8_t  hci_acl_in_buffer[HCI_INCOMING_PRE_BUFFER_SIZE + HCI_ACL_BUFFER_SIZE];
 static uint8_t  * hci_acl_in_packet = &hci_acl_in_buffer[HCI_INCOMING_PRE_BUFFER_SIZE];
 
+USBH_StatusTypeDef usbh_bluetooth_start_acl_in_transfer(USBH_HandleTypeDef *phost, USB_Bluetooth_t * usb){
+    uint16_t acl_in_transfer_size = btstack_min(usb->acl_in_len, HCI_ACL_BUFFER_SIZE - hci_acl_in_offset);
+    return USBH_BulkReceiveData(phost, hci_acl_in_packet, acl_in_transfer_size, usb->acl_in_pipe);
+}
+
 USBH_StatusTypeDef USBH_Bluetooth_InterfaceInit(USBH_HandleTypeDef *phost){
     log_info("USBH_Bluetooth_InterfaceInit");
 
@@ -150,7 +155,7 @@ USBH_StatusTypeDef USBH_Bluetooth_InterfaceInit(USBH_HandleTypeDef *phost){
     USBH_OpenPipe(phost, usb->acl_in_pipe, usb->acl_in_ep, phost->device.address, phost->device.speed, USB_EP_TYPE_BULK, usb->acl_in_len);
     USBH_LL_SetToggle(phost, usb->acl_in_pipe, 0U);
     hci_acl_in_offset = 0;
-    USBH_BulkReceiveData(phost, hci_acl_in_packet, usb->acl_in_len, usb->acl_in_pipe);
+    usbh_bluetooth_start_acl_in_transfer(phost, usb);
 
     // ACL Out
     usb->acl_out_ep  =  interface->Ep_Desc[acl_out].bEndpointAddress;
@@ -291,7 +296,7 @@ USBH_StatusTypeDef USBH_Bluetooth_Process(USBH_HandleTypeDef *phost){
                 }
                 hci_acl_in_offset = left_over;
             }
-            USBH_BulkReceiveData(phost, hci_acl_in_packet, usb->acl_in_len, usb->acl_in_pipe);
+            usbh_bluetooth_start_acl_in_transfer(phost, usb);
             status = USBH_OK;
             break;
         default:
