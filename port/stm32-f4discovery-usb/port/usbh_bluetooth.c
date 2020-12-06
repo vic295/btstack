@@ -194,6 +194,7 @@ USBH_StatusTypeDef USBH_Bluetooth_Process(USBH_HandleTypeDef *phost){
     USB_Bluetooth_t * usb = (USB_Bluetooth_t *) phost->pActiveClass->pData;
     USBH_URBStateTypeDef urb_state;
     USBH_StatusTypeDef status = USBH_BUSY;
+    uint16_t transfer_size;
     switch (usbh_out_state){
         case USBH_OUT_CMD:
             phost->Control.setup.b.bmRequestType = USB_H2D | USB_REQ_RECIPIENT_INTERFACE | USB_REQ_TYPE_CLASS;
@@ -209,19 +210,31 @@ USBH_StatusTypeDef USBH_Bluetooth_Process(USBH_HandleTypeDef *phost){
             }
             break;
         case USBH_OUT_ACL_SEND:
-            USBH_BulkSendData(phost, (uint8_t *) acl_packet, acl_len, usb->acl_out_pipe, 0);
+            transfer_size = btstack_min(usb->acl_out_len, acl_len);
+            // log_info("USBH_OUT_ACL_SEND: packet %p, len %u", acl_packet, acl_len);
+            USBH_BulkSendData(phost, (uint8_t *) acl_packet, transfer_size, usb->acl_out_pipe, 1);
             usbh_out_state = USBH_OUT_ACL_POLL;
             break;
         case USBH_OUT_ACL_POLL:
             urb_state = USBH_LL_GetURBState(phost, usb->acl_out_pipe);
+            // log_info("URB State ACL Out: %02x, len %u", urb_state, acl_len);
             switch (urb_state){
                 case USBH_URB_IDLE:
+                    break;
                 case USBH_URB_NOTREADY:
+                    usbh_out_state = USBH_OUT_ACL_SEND;
                     break;
                 case USBH_URB_DONE:
-                    usbh_out_state = USBH_OUT_IDLE;
-                    // notify host stack
-                    (*usbh_packet_sent)();
+                    transfer_size = btstack_min(usb->acl_out_len, acl_len);
+                    acl_len -= transfer_size;
+                    if (acl_len == 0){
+                        usbh_out_state = USBH_OUT_IDLE;
+                        // notify host stack
+                        (*usbh_packet_sent)();
+                    } else {
+                        acl_packet += transfer_size;
+                        usbh_out_state = USBH_OUT_ACL_SEND;
+                    }
                     break;
                 default:
                     log_info("URB State ACL Out: %02x", urb_state);
