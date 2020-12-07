@@ -52,6 +52,7 @@ typedef struct {
     uint8_t  event_in_ep;
     uint8_t  event_in_pipe;
     uint16_t event_in_len;
+    uint32_t event_in_frame;
 } USB_Bluetooth_t;
 
 static enum {
@@ -66,7 +67,6 @@ static enum {
     USBH_IN_OFF,
     USBH_IN_SUBMIT_REQUEST,
     USBH_IN_POLL,
-    USBH_IN_WAIT_SOF,
 } usbh_in_state;
 
 //
@@ -252,6 +252,7 @@ USBH_StatusTypeDef USBH_Bluetooth_Process(USBH_HandleTypeDef *phost){
         case USBH_IN_SUBMIT_REQUEST:
             event_transfer_size = btstack_min( usb->event_in_len, sizeof(hci_event) - hci_event_offset);
             USBH_InterruptReceiveData(phost, &hci_event[hci_event_offset], event_transfer_size, usb->event_in_pipe);
+            usb->event_in_frame = phost->Timer;
             usbh_in_state = USBH_IN_POLL;
             break;
         case USBH_IN_POLL:
@@ -260,7 +261,7 @@ USBH_StatusTypeDef USBH_Bluetooth_Process(USBH_HandleTypeDef *phost){
                 case USBH_URB_IDLE:
                     break;
                 case USBH_URB_DONE:
-                    usbh_in_state = USBH_IN_WAIT_SOF;
+                    usbh_in_state = USBH_IN_SUBMIT_REQUEST;
                     event_transfer_size = USBH_LL_GetLastXferSize(phost, usb->event_in_pipe);
                     hci_event_offset += event_transfer_size;
                     if (hci_event_offset < 2) break;
@@ -279,6 +280,9 @@ USBH_StatusTypeDef USBH_Bluetooth_Process(USBH_HandleTypeDef *phost){
                 default:
                     log_info("URB State Event: %02x", urb_state);
                     break;
+            }
+            if ((phost->Timer - usb->event_in_frame) > 2){
+                usbh_in_state = USBH_IN_SUBMIT_REQUEST;
             }
             break;
         default:
@@ -326,17 +330,8 @@ USBH_StatusTypeDef USBH_Bluetooth_Process(USBH_HandleTypeDef *phost){
 
     return status;
 }
+
 USBH_StatusTypeDef USBH_Bluetooth_SOFProcess(USBH_HandleTypeDef *phost){
-    // log_info("USBH_Bluetooth_SOFProcess");
-    // restart interrupt receive
-    switch (usbh_in_state){
-        case USBH_IN_WAIT_SOF:
-        case USBH_IN_POLL:
-            usbh_in_state = USBH_IN_SUBMIT_REQUEST;
-            break;
-        default:
-            break;
-    }
     return USBH_OK;
 }
 
