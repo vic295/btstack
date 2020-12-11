@@ -88,9 +88,11 @@ static uint8_t  hci_event[257]; // 2 + 255
 static uint16_t hci_acl_in_offset;
 static uint8_t  hci_acl_in_buffer[HCI_INCOMING_PRE_BUFFER_SIZE + HCI_ACL_BUFFER_SIZE];
 static uint8_t  * hci_acl_in_packet = &hci_acl_in_buffer[HCI_INCOMING_PRE_BUFFER_SIZE];
+static uint32_t hci_acl_in_timer;
 
 USBH_StatusTypeDef usbh_bluetooth_start_acl_in_transfer(USBH_HandleTypeDef *phost, USB_Bluetooth_t * usb){
     uint16_t acl_in_transfer_size = btstack_min(usb->acl_in_len, HCI_ACL_BUFFER_SIZE - hci_acl_in_offset);
+    hci_acl_in_timer = phost->Timer;
     return USBH_BulkReceiveData(phost, &hci_acl_in_packet[hci_acl_in_offset], acl_in_transfer_size, usb->acl_in_pipe);
 }
 
@@ -295,6 +297,12 @@ USBH_StatusTypeDef USBH_Bluetooth_Process(USBH_HandleTypeDef *phost){
     uint16_t acl_packet_start;
     switch (urb_state){
         case USBH_URB_IDLE:
+            if ((phost->Timer - hci_acl_in_timer) > 2){
+                log_debug("ACL In IDLE for full frame, restart transfer");
+                status = usbh_bluetooth_start_acl_in_transfer(phost, usb);
+                btstack_assert(status == USBH_OK);
+            }
+            break;
         case USBH_URB_NOTREADY:
             break;
         case USBH_URB_DONE:
@@ -320,8 +328,8 @@ USBH_StatusTypeDef USBH_Bluetooth_Process(USBH_HandleTypeDef *phost){
                 hci_acl_in_offset = extra_data;
             }
             // start new transfer
-            usbh_bluetooth_start_acl_in_transfer(phost, usb);
-            status = USBH_OK;
+            status = usbh_bluetooth_start_acl_in_transfer(phost, usb);
+            btstack_assert(status == USBH_OK);
             break;
         default:
             log_info("URB State Event: %02x", urb_state);
