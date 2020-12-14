@@ -153,7 +153,7 @@ void port_main(void){
     btstack_run_loop_init(btstack_run_loop_embedded_get_instance());
 
     // uncomment for packet log
-    hci_dump_open( NULL, HCI_DUMP_STDOUT );
+    // hci_dump_open( NULL, HCI_DUMP_STDOUT );
 
     // init HCI
     hci_init(hci_transport_h2_stm32_instance(), NULL);
