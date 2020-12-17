@@ -297,13 +297,20 @@ USBH_StatusTypeDef USBH_Bluetooth_Process(USBH_HandleTypeDef *phost){
     uint16_t acl_packet_start;
     switch (urb_state){
         case USBH_URB_IDLE:
+            // If state stays IDLE for longer than a full frame, something went wrong with submitting the request,
+            // just re-submits the request
             if ((phost->Timer - hci_acl_in_timer) > 2){
-                log_debug("ACL In IDLE for full frame, restart transfer");
                 status = usbh_bluetooth_start_acl_in_transfer(phost, usb);
                 btstack_assert(status == USBH_OK);
             }
             break;
         case USBH_URB_NOTREADY:
+            // The original USB Host code re-submits the request when it receives a NAK, resulting in about 80% MCU load
+            // With our patch, NOTREADY is returned, which allows to re-submit the request in the next frame.
+            if (phost->Timer != hci_acl_in_timer){
+                status = usbh_bluetooth_start_acl_in_transfer(phost, usb);
+                btstack_assert(status == USBH_OK);
+            }
             break;
         case USBH_URB_DONE:
             // update available acl bytes
