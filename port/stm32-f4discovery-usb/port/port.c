@@ -126,21 +126,24 @@ void btstack_assert_failed(const char * file, uint16_t line_nr){
 int puts(const char * s){
     SEGGER_RTT_WriteString(0, s);
     SEGGER_RTT_PutChar(0, '\n');
+    return 1;
 }
 
 int putchar(int c){
     SEGGER_RTT_PutChar(0, c);
+    return c;
 }
 
 int printf(const char * format, ...){
     va_list argptr;
     va_start(argptr, format);
-    SEGGER_RTT_vprintf(0, format, &argptr);
+    int res = SEGGER_RTT_vprintf(0, format, &argptr);
     va_end(argptr);
+    return res;
 }
 
 int vprintf(const char * format,  va_list argptr){
-    SEGGER_RTT_vprintf(0, format, &argptr);
+    return SEGGER_RTT_vprintf(0, format, &argptr);
 }
 #endif
 
